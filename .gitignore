@@ -1,0 +1,16 @@
+# Secrets - never commit
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+*.egg-info/
+
+# macOS
+.DS_Store
+
+# Conversation history - regenerated at runtime, not a deliverable
+data/conversations.db
