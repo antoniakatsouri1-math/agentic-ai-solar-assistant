@@ -41,7 +41,7 @@ NO_RESULTS_MESSAGE_EL = (
 
 # Below this similarity threshold (Chroma returns L2 distance - lower is
 # more similar) we treat a chunk as noise rather than a real match.
-DISTANCE_THRESHOLD = 1.5
+DISTANCE_THRESHOLD = 30
 
 
 def _format_chunks_block(chunks: List[RagChunk]) -> str:
