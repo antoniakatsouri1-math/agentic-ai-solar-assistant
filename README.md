@@ -7,10 +7,13 @@ relevance), **web search**, **RAG retrieval** (Greek RES regulations),
 conversation memory that persists across restarts. The agent answers in
 whichever language it's asked - Greek or English.
 
-**Scope of this submission:** this submission implements **Feature 1 (Web Search Agent)**,
-**Feature 2 (RAG Retrieval Agent)**, and **Feature 3 (Text-to-SQL Agent)**,
-on top of the given baseline (Weather tool + general LLM node). **Feature
-4 (Intent Router)** and **Feature 5 (Conversation Memory & Persistence)** .
+**Scope of this submission:** this submission implements **Feature 1 (Web
+Search Agent)**, **Feature 2 (RAG Retrieval Agent)**, and **Feature 3
+(Text-to-SQL Agent)**, on top of the given baseline (Weather tool +
+general LLM node). **Feature 4 (Intent Router)** and **Feature 5
+(Conversation Memory & Persistence)** are implemented, since they
+apply as connective infrastructure across all paths regardless of how
+many independent agents are built.
 ___
 
 ## Table of Contents
@@ -69,12 +72,12 @@ ___
 > **macOS only:** `pygraphviz` (used for the graph diagram) requires the
 > Graphviz library installed via Homebrew *before* it can build:
 > `brew install graphviz`. If you'd rather skip the diagram step, comment
-> out `pygraphviz` in `requirements.txt` and skip step 5 below - it's not
+> out `pygraphviz` in `requirements.txt` and skip step 6 below - it's not
 > required to run the agent itself.
 
 1. Clone and enter the repo, then create a virtual environment with Python 3.11
 ```bash
-git clone git clone https://github.com/antoniakatsouri1-math/agentic-ai-solar-assistant
+git clone https://github.com/antoniakatsouri1-math/agentic-ai-solar-assistant
 cd agentic-ai-solar-assistant
 
 python3.11 -m venv venv
@@ -100,16 +103,15 @@ cp .env.example .env
 python3 scripts/build_database.py
 ```
 
-5. Build the RAG knowledge base index (Feature 2) — **required for the RAG
-   node to return any results; without this step every RAG query will
-   report "nothing found"**
+5. (Optional) Rebuild the RAG knowledge base index — a pre-built
+   `chroma_db/` is already committed to this repository, so this step is
+   only needed if you modify the documents in `data/knowledge_base/` and
+   want to re-index them
 ```bash
 python3 scripts/ingest_kb.py
 ```
-This only needs to be run once. Re-run it only if you change the
-documents in `data/knowledge_base/`.
 
-6. Generate the graph visualization 
+6. Generate the graph visualization
 ```bash
 python3 scripts/visualize_graph.py
 ```
@@ -128,7 +130,7 @@ Type `exit` or `quit` to end the session. The conversation id is printed
 when a new session starts. Ask in Greek or English - the agent matches
 your language.
 
-### Example interaction (live run, all 5 routes - in Greek)
+### Example interaction (live run, all routes - in Greek)
 
 > **You:** Τι καιρό θα κάνει στην Αθήνα σήμερα;
 >
@@ -186,9 +188,11 @@ your language.
 
 Chunked at 800 characters with 150-character overlap, embedded with the
 multilingual `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`,
-and stored in a ChromaDB collection persisted to `chroma_db/` (built once
-via `scripts/ingest_kb.py`, never re-embedded on app startup - see step 5
-in Section 2 above).
+and stored in a ChromaDB collection persisted to `chroma_db/`. This
+collection is pre-built and **committed to the repository** so it's ready
+to query immediately after cloning - it is never re-embedded on app
+startup, and only needs to be rebuilt (`scripts/ingest_kb.py`, see step 5
+in Section 2 above) if the source documents change.
 
 ## 5. Database (Feature 3)
 
@@ -327,19 +331,19 @@ Interactive docs (Swagger UI): `http://127.0.0.1:8000/docs`
 | `POST` | `/chat` | Send a message; same memory workflow as `main.py`. Body: `{"message": str, "conversation_id": str or null}`. Response: `{"response": str, "conversation_id": str, "route": str}` |
 | `GET` | `/conversations/{conversation_id}/history` | Returns the full stored message history for a conversation |
 
-Example:
-```
+Example request:
+```json
 {
   "message": "Τι καιρό θα κάνει σήμερα στην Αθήνα",
-  "conversation_id": "null"
+  "conversation_id": null
 }
 ```
 
-Response:
-```
+Example response:
+```json
 {
-  "response": "Σήμερα στην Αθήνα θα κάνει ζεστά, με τρέχουσα θερμοκρασία περίπου 33,5 °C και προβλεπόμενο εύρος 23,5 °C – 34,2 °C. Ο ουρανός είναι καθαρός, με μόνο 19 % νεφοκάλυψη και άνετο αεράκι 11 km/h. Η ημέρα θα έχει περίπου 13,8 ώρες ηλιοφάνειας, οπότε οι συνθήκες είναι εξαιρετικές για τη φωτοβολταϊκή παραγωγή. Καλή σας μέρα!",
-  "conversation_id": "null",
+  "response": "Σήμερα στην Αθήνα θα κάνει ζεστά, με τρέχουσα θερμοκρασία περίπου 33,5 °C και προβλεπόμενο εύρος 23,5 °C – 34,2 °C. Ο ουρανός είναι καθαρός, με μόνο 19 % νεφοκάλυψη και άνετο αεράκι 11 km/h. Η ημέρα θα έχει περίπου 13,8 ώρες ηλιοφάνειας, οπότε οι συνθήκες είναι εξαιρετικές για τη φωτοβολταϊκή παραγωγή. Καλή σας μέρα!",
+  "conversation_id": "b3f1...",
   "route": "weather"
 }
 ```
@@ -370,16 +374,15 @@ agentic-homework/
 │       └── sql_tool.py          # Feature 3: validation + execution
 ├── scripts/
 │   ├── build_database.py        # Builds data/database.db (Feature 3)
-│   ├── ingest_kb.py             # Builds chroma_db/ (Feature 2) - run once before first use
+│   ├── ingest_kb.py             # Builds/rebuilds chroma_db/ (Feature 2) - optional, pre-built copy is committed
 │   ├── visualize_graph.py       # Generates results/graph.png (Feature 4)
-│   ├── test_router.py           # Generates the table in section 6 (Feature 4)
+│   └── test_router.py           # Generates the table in section 6 (Feature 4)
 ├── data/
 │   ├── knowledge_base/          # RAG source documents (Feature 2)
 │   ├── schema.sql                # SQL creation script (Feature 3)
 │   ├── database.db               # Seeded solar-equipment sales DB (Feature 3)
 │   └── conversations.db          # Conversation history (created on first run, Feature 5)
-├── chroma_db/                    # Persisted ChromaDB vector store (Feature 2) -
-│                                  #   generated by scripts/ingest_kb.py, NOT committed to git
+├── chroma_db/                    # Persisted ChromaDB vector store (Feature 2) - committed to repo
 ├── results/
 │   └── graph.png                 # Graph visualization
 ├── requirements.txt
