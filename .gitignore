@@ -15,4 +15,3 @@ venv/
 # Conversation history - regenerated at runtime, not a deliverable
 data/conversations.db
 .idea/
-chroma_db/
