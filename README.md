@@ -7,17 +7,13 @@ relevance), **web search**, **RAG retrieval** (Greek RES regulations),
 conversation memory that persists across restarts. The agent answers in
 whichever language it's asked - Greek or English.
 
-**Scope of this submission:** of the 5 features described in the
-assignment, this submission implements **Feature 1 (Web Search Agent)**,
+**Scope of this submission:** this submission implements **Feature 1 (Web Search Agent)**,
 **Feature 2 (RAG Retrieval Agent)**, and **Feature 3 (Text-to-SQL Agent)**,
 on top of the given baseline (Weather tool + general LLM node). **Feature
 4 (Intent Router)** and **Feature 5 (Conversation Memory & Persistence)**
 are also implemented, since the assignment describes them as connective
 infrastructure that applies across all paths regardless of how many of
 the independent agents are built.
-___
-![Graph visualization](results/graph.png)
-
 ___
 ## 1. System Overview
 
@@ -29,6 +25,16 @@ ___
 | **rag** *(Feature 2)* | `src/agents/rag_agent.py` | Retrieves from a persisted ChromaDB collection of real Greek RES regulatory documents and answers strictly from those chunks, citing the source per claim. |
 | **sql** *(Feature 3)* | `src/agents/sql_agent.py` | Generates a SQLite `SELECT` query against the solar-equipment sales database, validates it's read-only, executes it, explains the result. |
 | **general** *(baseline)* | `src/agents/general_agent.py` | Catch-all LLM node for anything else, with the same rolling conversation history as every other node. |
+
+![Graph visualization](results/graph.png)
+
+**Interpretation:** every message enters at `router`, which classifies intent
+and conditionally routes to exactly one of `weather` / `search` / `rag` /
+`sql` / `general` via LangGraph conditional edges. Each destination node
+is a terminal node - it produces the final response and the graph ends
+(`END`) - so no message passes through more than one specialist node per
+turn. The router's fallback path sends anything ambiguous or unparseable
+to `general` rather than failing.
 
 **Language behavior:** every agent's system prompt instructs it to answer
 in the same language the question was asked in (Greek → Greek, English →
@@ -43,20 +49,57 @@ references work no matter which node ends up handling the current turn.
 ___
 ## 2. Setup Instructions
 
-1. Clone and enter the repo, then create a virtual environment
+> **Requires Python 3.11 specifically.** Newer versions (e.g. 3.14) fail
+> to build the `tokenizers` package, since no precompiled wheel exists yet
+> for them and the source build requires a Rust toolchain version this
+> project doesn't support. If you don't already have Python 3.11:
+> `brew install python@3.11` (macOS).
+
+> **macOS only:** `pygraphviz` (used for the graph diagram) requires the
+> Graphviz library installed via Homebrew *before* it can build:
+> `brew install graphviz`. If you'd rather skip the diagram step, comment
+> out `pygraphviz` in `requirements.txt` and skip step 5 below - it's not
+> required to run the agent itself.
+
+1. Clone and enter the repo, then create a virtual environment with Python 3.11
 ```bash
+git clone git clone https://github.com/antoniakatsouri1-math/agentic-ai-solar-assistant
+cd agentic-ai-solar-assistant
+
 python3.11 -m venv venv
-source venv/bin/activate        
+source venv/bin/activate
+```
 
+2. Install dependencies
+```bash
 pip3 install -r requirements.txt
+```
 
+3. Set up your API keys
+```bash
 cp .env.example .env
 # Edit .env and set:
 #   GROQ_API_KEY=...    (required - free tier at console.groq.com)
 #   TAVILY_API_KEY=...  (required for the search node - free key at tavily.com)
 # (No key needed for weather - it uses the free Open-Meteo API.)
+```
 
+4. Build the equipment sales database (Feature 3)
+```bash
 python3 scripts/build_database.py
+```
+
+5. Build the RAG knowledge base index (Feature 2) — **required for the RAG
+   node to return any results; without this step every RAG query will
+   report "nothing found"**
+```bash
+python3 scripts/ingest_kb.py
+```
+This only needs to be run once. Re-run it only if you change the
+documents in `data/knowledge_base/`.
+
+6. Generate the graph visualization 
+```bash
 python3 scripts/visualize_graph.py
 ```
 
@@ -89,12 +132,6 @@ your language.
 > [2] net_metering_and_billing.md (chunk 0)
 > [3] net_metering_and_billing.md (chunk 1)
 > [4] pv_licensing_and_connection.pdf (chunk 4)
-
-> **You:** Ποια κατηγορία προϊόντων είχε τα μεγαλύτερα έσοδα;
->
-> **Agent:** Η κατηγορία προϊόντων που είχε τα μεγαλύτερα έσοδα είναι η «Μπαταρία».
->
-> (SQL used: SELECT p.category FROM sales s JOIN products p ON s.product_id = p.product_id GROUP BY p.category ORDER BY SUM(s.total_amount) DESC LIMIT 1)
 
 > **You:** Ποιες είναι οι τρέχουσες τιμές ενέργειας στην Ελλάδα;
 >
@@ -134,12 +171,13 @@ your language.
 | `subsidy_program_pv_stegi.md` | ΥΠΕΝ/ΥΔΕΝ/47129/720/28.4.2023 (Government Gazette Β' 2903), ΥΠΕΝ/ΔΑΠΕΕΚ/1004/36/2025 (Government Gazette Β' 17) — the "Φωτοβολταϊκά στη Στέγη" (Rooftop Solar) subsidy program, run by the Greek Ministry of Environment and Energy (ΥΠΕΝ) |
 | `vat_tax_treatment.md` | Current 24% VAT rate, EU Directive 2022/542, HELAPCO's (Hellenic Association of Photovoltaic Companies) request to the Ministry of Finance (helapco.gr) |
 | `energy_communities.md` | Law 4513/2018 (Government Gazette 9Α), Ministerial Decision ΥΠΕΝ/ΔΑΠΕΕΚ/15084/382 (Government Gazette Β' 759/2019) |
-| `pv_licensing_and_connection.pdf` | Law 3851/2010 (license exemption for systems <1MWp), Law 4685/2020 (Government Gazette 92Α — Producer Certificate), official ΔΕΔΔΗΕ (Hellenic Electricity Distribution Network Operator) grid connection procedure |                       |
+| `pv_licensing_and_connection.pdf` | Law 3851/2010 (license exemption for systems <1MWp), Law 4685/2020 (Government Gazette 92Α — Producer Certificate), official ΔΕΔΔΗΕ (Hellenic Electricity Distribution Network Operator) grid connection procedure |
 
 Chunked at 800 characters with 150-character overlap, embedded with the
 multilingual `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`,
 and stored in a ChromaDB collection persisted to `chroma_db/` (built once
-via `scripts/ingest_kb.py`, never re-embedded on app startup).
+via `scripts/ingest_kb.py`, never re-embedded on app startup - see step 5
+in Section 2 above).
 
 ## 5. Database (Feature 3)
 
@@ -152,6 +190,34 @@ seed script in `scripts/build_database.py`):
 - `products` (20 rows) — panels, inverters, batteries, accessories, with realistic Greek-market pricing
 - `sales` (180 rows) — sale_id, product_id → products.product_id, sale_date, quantity, **region** (Κρήτη/Αττική/Πελοπόννησος/Θεσσαλία/Κεντρική Μακεδονία — regions chosen for their differing solar irradiance, tying back to the weather node), total_amount
 
+### Dataset Details
+
+The data is **synthetic, generated with a fixed random seed** (`scripts/build_database.py`,
+`random.seed(42)`), so re-running the script always reproduces the same
+180 sales rows deterministically. It is not scraped or sourced from a
+real company.
+
+- **`products`** — 20 real solar/PV product types across 4 categories:
+  5 Πάνελ (solar panels, 400–600W), 5 Inverter (5–15kW, incl. one hybrid
+  with battery), 3 Μπαταρία (lithium batteries, 5/10/15 kWh), 7 Αξεσουάρ
+  (mounting hardware, DC cabling, safety switches, monitoring systems,
+  power optimizers, surge protection). Prices and stock quantities are
+  realistic for the Greek market at time of writing.
+- **`sales`** — 180 rows spanning the full 2025 calendar year
+  (2025-01-01 to 2025-12-31), each linked to one product and one of the
+  5 Greek regions above. Product popularity is intentionally weighted
+  (via random per-product sampling weights) so some products sell more
+  than others, rather than a flat uniform distribution — this keeps
+  aggregate queries (e.g. "top category by revenue") meaningful instead
+  of arbitrary.
+- To inspect the data directly:
+```bash
+  sqlite3 data/database.db
+  sqlite> .tables
+  sqlite> SELECT * FROM products LIMIT 10;
+  sqlite> SELECT * FROM sales LIMIT 10;
+```
+
 ### Safety
 
 The validation stage in `src/tools/sql_tool.py` rejects any query
@@ -160,6 +226,26 @@ a whole word, rejects anything not starting with `SELECT`/`WITH`, and
 rejects stacked statements (`;`). As defense in depth, the DB connection
 itself is opened read-only (`mode=ro`), so even a validation bypass can't
 write.
+
+### Example Queries
+
+**Q: "Ποια κατηγορία προϊόντων είχε τα μεγαλύτερα έσοδα;"**
+```sql
+SELECT p.category FROM sales s
+JOIN products p ON s.product_id = p.product_id
+GROUP BY p.category
+ORDER BY SUM(s.total_amount) DESC
+LIMIT 1;
+```
+**Result:** Μπαταρία (Battery)
+
+**Q: "Πόσες μπαταρίες 10kWh έχουμε πουλήσει;"**
+```sql
+SELECT COALESCE(SUM(s.quantity), 0) FROM sales s
+JOIN products p ON s.product_id = p.product_id
+WHERE p.category = 'Μπαταρία' AND p.product_name LIKE '%10kWh%';
+```
+**Result:** 49
 
 ## 6. Router Test Cases (Feature 4)
 
@@ -231,10 +317,20 @@ Interactive docs (Swagger UI): `http://127.0.0.1:8000/docs`
 | `GET` | `/conversations/{conversation_id}/history` | Returns the full stored message history for a conversation |
 
 Example:
-```bash
-curl -X POST http://127.0.0.1:8000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message": "Τι καιρό θα κάνει στην Αθήνα;", "conversation_id": null}'
+```
+{
+  "message": "Τι καιρό θα κάνει σήμερα στην Αθήνα",
+  "conversation_id": "null"
+}
+```
+
+Response:
+```
+{
+  "response": "Σήμερα στην Αθήνα θα κάνει ζεστά, με τρέχουσα θερμοκρασία περίπου 33,5 °C και προβλεπόμενο εύρος 23,5 °C – 34,2 °C. Ο ουρανός είναι καθαρός, με μόνο 19 % νεφοκάλυψη και άνετο αεράκι 11 km/h. Η ημέρα θα έχει περίπου 13,8 ώρες ηλιοφάνειας, οπότε οι συνθήκες είναι εξαιρετικές για τη φωτοβολταϊκή παραγωγή. Καλή σας μέρα!",
+  "conversation_id": "null",
+  "route": "weather"
+}
 ```
 
 ## 9. Project Structure
@@ -263,7 +359,7 @@ agentic-homework/
 │       └── sql_tool.py          # Feature 3: validation + execution
 ├── scripts/
 │   ├── build_database.py        # Builds data/database.db (Feature 3)
-│   ├── ingest_kb.py             # Builds chroma_db/ (Feature 2)
+│   ├── ingest_kb.py             # Builds chroma_db/ (Feature 2) - run once before first use
 │   ├── visualize_graph.py       # Generates results/graph.png (Feature 4)
 │   ├── test_router.py           # Generates the table in section 6 (Feature 4)
 │   └── _generate_licensing_pdf.py  # Authoring script for the PDF (not runtime)
@@ -272,7 +368,8 @@ agentic-homework/
 │   ├── schema.sql                # SQL creation script (Feature 3)
 │   ├── database.db               # Seeded solar-equipment sales DB (Feature 3)
 │   └── conversations.db          # Conversation history (created on first run, Feature 5)
-├── chroma_db/                    # Persisted ChromaDB vector store (Feature 2)
+├── chroma_db/                    # Persisted ChromaDB vector store (Feature 2) -
+│                                  #   generated by scripts/ingest_kb.py, NOT committed to git
 ├── results/
 │   └── graph.png                 # Required graph visualization (Feature 4)
 ├── requirements.txt
